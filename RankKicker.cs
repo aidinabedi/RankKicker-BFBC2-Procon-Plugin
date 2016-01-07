@@ -9,9 +9,9 @@ using PRoCon.Core.Plugin;
 
 namespace PRoConEvents
 {
-	public class CRankKicker : PRoConPluginAPI, IPRoConPluginInterface
+	public class RankKicker : PRoConPluginAPI, IPRoConPluginInterface
 	{
-		private static readonly string className = typeof(CRankKicker).Name;
+		private static readonly string className = typeof(RankKicker).Name;
 
 		private bool isPluginEnabled;
 		private readonly HashSet<string> reservedPlayers = null;
@@ -20,11 +20,6 @@ namespace PRoConEvents
 		private int checkInterval = 5;
 		private bool ignoreReservedPlayers = false;
 		private bool ignoreCase = false;
-
-		public CRankKicker()
-		{
-			reservedPlayers = new HashSet<string>();
-		}
 
 		public string GetPluginName()
 		{
@@ -162,16 +157,9 @@ namespace PRoConEvents
 
 		public override void OnReservedSlotsList(List<string> soldierNames)
 		{
-			if (soldierNames.Count > 0)
-			{
-				reservedPlayers = new HashSet<string>(soldierNames, _GetStringComparer());
+			reservedPlayers = (soldierNames.Count > 0) ? new HashSet<string>(soldierNames, _GetStringComparer()) : null;
 
-				_CheckAllPlayers();
-			}
-			else
-			{
-				reservedPlayers = null;
-			}
+			CheckAllPlayers();
 		}
 
 		public override void OnReservedSlotsCleared()
@@ -184,7 +172,10 @@ namespace PRoConEvents
 			foreach (var player in players)
 			{
 				var soldierName = player.SoldierName;
-				if (ignoreReservedPlayers && reservedPlayers.Contains(soldierName)) continue;
+				if (ignoreReservedPlayers && reservedPlayers != null && reservedPlayers.Contains(soldierName))
+				{
+					continue;
+				}
 
 				int rank = player.Rank;
 				if (rank == 0)
