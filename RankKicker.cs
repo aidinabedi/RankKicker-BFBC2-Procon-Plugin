@@ -13,8 +13,8 @@ namespace PRoConEvents
 	{
 		private static readonly string className = typeof(RankKicker).Name;
 
-		private bool isPluginEnabled;
-		private readonly HashSet<string> reservedPlayers = null;
+		private bool isPluginEnabled = false;
+		private HashSet<string> reservedPlayers = null;
 
 		private int rankLimit = 49;
 		private int checkInterval = 5;
@@ -70,7 +70,7 @@ namespace PRoConEvents
 		public void OnPluginEnable()
 		{
 			isPluginEnabled = true;
-			reservedPlayers.Clear();
+			reservedPlayers = null;
 
 			ExecuteCommand("procon.protected.send", "reservedSlots.list");
 
@@ -82,7 +82,7 @@ namespace PRoConEvents
 		public void OnPluginDisable()
 		{
 			isPluginEnabled = false;
-			reservedPlayers.Clear();
+			reservedPlayers = null;
 
 			ExecuteCommand("procon.protected.tasks.remove", className);
 
@@ -139,7 +139,7 @@ namespace PRoConEvents
 		{
 			if (reservedPlayers == null)
 			{
-				reservedPlayers = new HashSet<string>(soldierNames, _GetStringComparer());
+				reservedPlayers = new HashSet<string>(_GetStringComparer());
 			}
 
 			reservedPlayers.Add(soldierName);
@@ -159,7 +159,7 @@ namespace PRoConEvents
 		{
 			reservedPlayers = (soldierNames.Count > 0) ? new HashSet<string>(soldierNames, _GetStringComparer()) : null;
 
-			CheckAllPlayers();
+			_CheckAllPlayers();
 		}
 
 		public override void OnReservedSlotsCleared()
