@@ -13,17 +13,17 @@ namespace PRoConEvents
 	{
 		private static readonly string className = typeof(CRankKicker).Name;
 
-		private readonly HashSet<string> m_reservedPlayers;
+		private bool isPluginEnabled;
+		private readonly HashSet<string> reservedPlayers = null;
 
-		private bool m_isPluginEnabled;
-
-		private int m_rankLimit = 49;
-		private int m_checkInterval = 5;
-		private enumBoolYesNo m_allowReservedPlayers = enumBoolYesNo.No;
+		private int rankLimit = 49;
+		private int checkInterval = 5;
+		private bool ignoreReservedPlayers = false;
+		private bool ignoreCase = false;
 
 		public CRankKicker()
 		{
-			m_reservedPlayers = new HashSet<string>();
+			reservedPlayers = new HashSet<string>();
 		}
 
 		public string GetPluginName()
@@ -33,7 +33,7 @@ namespace PRoConEvents
 
 		public string GetPluginVersion()
 		{
-			return "1.1.0.0";
+			return "1.3.0.0";
 		}
 
 		public string GetPluginAuthor()
@@ -48,7 +48,7 @@ namespace PRoConEvents
 
 		public string GetPluginDescription()
 		{
-			return @"Kicks a player if they have to high rank.";
+			return @"Kicks a player if they have too high rank.";
 		}
 
 		public List<CPluginVariable> GetDisplayPluginVariables()
@@ -56,16 +56,15 @@ namespace PRoConEvents
 			return GetPluginVariables();
 		}
 
-		// Lists all of the plugin variables.
 		public List<CPluginVariable> GetPluginVariables()
 		{
-			var retval = new List<CPluginVariable>();
-
-			retval.Add(new CPluginVariable("Rank Limit", typeof(int), m_rankLimit));
-			retval.Add(new CPluginVariable("Check Interval", typeof(int), m_checkInterval));
-			retval.Add(new CPluginVariable("Allow Reserved Players", typeof(enumBoolYesNo), m_allowReservedPlayers));
-
-			return retval;
+			return new List<CPluginVariable>
+			{
+				new CPluginVariable("Rank Limit", typeof(int), rankLimit),
+				new CPluginVariable("Check Interval", typeof(int), checkInterval),
+				new CPluginVariable("Ignore Reserved Players", typeof(bool), ignoreReservedPlayers),
+				new CPluginVariable("Case Insensitive Comparison", typeof(bool), ignoreCase),
+			};
 		}
 
 		public void OnPluginLoaded(string hostName, string port, string proconVersion)
@@ -75,11 +74,10 @@ namespace PRoConEvents
 
 		public void OnPluginEnable()
 		{
-			m_isPluginEnabled = true;
-			m_reservedPlayers.Clear();
+			isPluginEnabled = true;
+			reservedPlayers.Clear();
 
 			ExecuteCommand("procon.protected.send", "reservedSlots.list");
-			ExecuteCommand("procon.protected.send", "admin.listPlayers", "all");
 
 			ExecuteCommand("procon.protected.pluginconsole.write", "^b" + GetPluginName() + " ^2Enabled!" );
 
@@ -88,8 +86,8 @@ namespace PRoConEvents
 
 		public void OnPluginDisable()
 		{
-			m_isPluginEnabled = false;
-			m_reservedPlayers.Clear();
+			isPluginEnabled = false;
+			reservedPlayers.Clear();
 
 			ExecuteCommand("procon.protected.tasks.remove", className);
 
@@ -98,18 +96,24 @@ namespace PRoConEvents
 
 		public void SetPluginVariable(string variable, string value)
 		{
-			if (variable == "Rank Limit")
+			switch (variable)
 			{
-				int.TryParse(value, out m_rankLimit);
-			}
-			else if (variable == "Check Interval")
-			{
-				int.TryParse(value, out m_checkInterval);
-				_UpdateCheckInterval();
-			}
-			else if (variable == "Allow Reserved Players" && Enum.IsDefined(typeof(enumBoolYesNo), value))
-			{
-				m_allowReservedPlayers = (enumBoolYesNo)Enum.Parse(typeof(enumBoolYesNo), value);
+				case "Rank Limit":
+					int.TryParse(value, out rankLimit);
+					break;
+
+				case "Check Interval":
+					int.TryParse(value, out checkInterval);
+					_UpdateCheckInterval();
+					break;
+
+				case "Ignore Reserved Players":
+					bool.TryParse(value, out ignoreReservedPlayers);
+					break;
+
+				case "Case Insensitive Comparison":
+					if (bool.TryParse(value, out ignoreCase)) _UpdateIgnoreCase();
+					break;
 			}
 		}
 
@@ -117,108 +121,98 @@ namespace PRoConEvents
 		{
 			ExecuteCommand("procon.protected.tasks.remove", className);
 
-			if (m_isPluginEnabled && m_checkInterval != 0)
+			if (isPluginEnabled && checkInterval != 0)
 			{
-				ExecuteCommand("procon.protected.tasks.add", className, "0", m_checkInterval.ToString(), "-1", "procon.protected.send", "admin.listPlayers", "all");
+				ExecuteCommand("procon.protected.tasks.add", className, "0", checkInterval.ToString(), "-1", "procon.protected.send", "admin.listPlayers", "all");
+			}
+		}
+
+		private void _UpdateIgnoreCase() 
+		{
+			if (reservedPlayers != null && reservedPlayers.Comparer != _GetStringComparer())
+			{
+				reservedPlayers = new HashSet<string>(reservedPlayers, _GetStringComparer());
 			}
 		}
 
 		public override void OnPlayerJoin(string soldierName)
 		{
-			try
-			{
-				ExecuteCommand("procon.protected.send", "admin.listPlayers", "all");
-			}
-			catch (Exception e)
-			{
-				ExecuteCommand("procon.protected.pluginconsole.write", className + ".OnPlayerJoin Exception: " + e.Message);
-			}
+			_CheckAllPlayers();
 		}
 
 		public override void OnReservedSlotsPlayerAdded(string soldierName)
 		{
-			try
+			if (reservedPlayers == null)
 			{
-				m_reservedPlayers.Add(soldierName);
+				reservedPlayers = new HashSet<string>(soldierNames, _GetStringComparer());
 			}
-			catch (Exception e)
-			{
-				ExecuteCommand("procon.protected.pluginconsole.write", className + ".OnReservedSlotsPlayerAdded Exception: " + e.Message);
-			}
+
+			reservedPlayers.Add(soldierName);
 		}
 
 		public override void OnReservedSlotsPlayerRemoved(string soldierName)
 		{
-			try
+			if (reservedPlayers != null)
 			{
-				m_reservedPlayers.Remove(soldierName);
-			}
-			catch (Exception e)
-			{
-				ExecuteCommand("procon.protected.pluginconsole.write", className + ".OnReservedSlotsPlayerRemoved Exception: " + e.Message);
+				reservedPlayers.Remove(soldierName);
+
+				_CheckAllPlayers();
 			}
 		}
 
 		public override void OnReservedSlotsList(List<string> soldierNames)
 		{
-			try
+			if (soldierNames.Count > 0)
 			{
-				m_reservedPlayers.Clear();
-				
-				foreach (var soldierName in soldierNames)
-				{
-					m_reservedPlayers.Add(soldierName);
-				}
+				reservedPlayers = new HashSet<string>(soldierNames, _GetStringComparer());
+
+				_CheckAllPlayers();
 			}
-			catch (Exception e)
+			else
 			{
-				ExecuteCommand("procon.protected.pluginconsole.write", className + ".OnReservedSlotsList Exception: " + e.Message);
+				reservedPlayers = null;
 			}
 		}
 
 		public override void OnReservedSlotsCleared()
 		{
-			try
-			{
-				m_reservedPlayers.Clear();
-			}
-			catch (Exception e)
-			{
-				ExecuteCommand("procon.protected.pluginconsole.write", className + ".OnReservedSlotsCleared Exception: " + e.Message);
-			}
+			reservedPlayers = null;
 		}
 
 		public override void OnListPlayers(List<CPlayerInfo> players, CPlayerSubset subset)
 		{
-			try
+			foreach (var player in players)
 			{
-				foreach (var player in players)
-				{
-					var soldierName = player.SoldierName;
-					if (m_allowReservedPlayers == enumBoolYesNo.Yes && m_reservedPlayers.Contains(soldierName)) continue;
+				var soldierName = player.SoldierName;
+				if (ignoreReservedPlayers && reservedPlayers.Contains(soldierName)) continue;
 
-					int rank = player.Rank;
+				int rank = player.Rank;
+				if (rank == 0)
+				{
+					rank = _GetGameTrackerBC2Stats(soldierName);
 					if (rank == 0)
 					{
-						rank = _GetGameTrackerBC2Stats(soldierName);
-						if (rank == 0)
-						{
-							rank = _GetBFBCStatRank(soldierName);
-							if (rank == 0) continue;
-						}
-					}
-
-					if (rank > m_rankLimit)
-					{
-						ExecuteCommand("procon.protected.send", "admin.kickPlayer", soldierName, "You got kicked due to your Player Rank (" + rank + ") being too high!");
-						ExecuteCommand("procon.protected.send", "admin.say", "Kicked '" + soldierName + "' because their Player Rank (" + rank + ") is too high!");
+						rank = _GetBFBCStatRank(soldierName);
+						if (rank == 0) continue;
 					}
 				}
+
+				if (rank > rankLimit)
+				{
+					ExecuteCommand("procon.protected.send", "admin.kickPlayer", soldierName, "You got kicked due to your Player Rank (" + rank + ") being too high!");
+					ExecuteCommand("procon.protected.send", "admin.say", "Kicked '" + soldierName + "' because their Player Rank (" + rank + ") is too high!");
+				}
 			}
-			catch (Exception e)
-			{
-				ExecuteCommand("procon.protected.pluginconsole.write", className + ".OnListPlayers Exception: " + e.Message);
-			}
+		}
+
+		private void _CheckAllPlayers()
+		{
+			ExecuteCommand("procon.protected.send", "admin.listPlayers", "all");
+		}
+
+		private StringComparer _GetStringComparer()
+		{
+			return ignoreCase ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 		}
 
 		private void _KickPlayer(string soldierName, int rank)
